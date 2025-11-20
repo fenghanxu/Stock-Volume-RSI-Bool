@@ -1,0 +1,77 @@
+PODS:
+  - AFNetworking (3.2.1):
+    - AFNetworking/NSURLSession (= 3.2.1)
+    - AFNetworking/Reachability (= 3.2.1)
+    - AFNetworking/Security (= 3.2.1)
+    - AFNetworking/Serialization (= 3.2.1)
+    - AFNetworking/UIKit (= 3.2.1)
+  - AFNetworking/NSURLSession (3.2.1):
+    - AFNetworking/Reachability
+    - AFNetworking/Security
+    - AFNetworking/Serialization
+  - AFNetworking/Reachability (3.2.1)
+  - AFNetworking/Security (3.2.1)
+  - AFNetworking/Serialization (3.2.1)
+  - AFNetworking/UIKit (3.2.1):
+    - AFNetworking/NSURLSession
+  - IQKeyboardManager (6.5.6)
+  - JXCategoryView (1.5.8)
+  - Masonry (1.1.0)
+  - MBProgressHUD (1.1.0)
+  - MJRefresh (3.5.0)
+  - NerdyUI (1.2.1):
+    - NerdyUI/Chainable (= 1.2.1)
+    - NerdyUI/Private (= 1.2.1)
+    - NerdyUI/Public (= 1.2.1)
+  - NerdyUI/Chainable (1.2.1):
+    - NerdyUI/Private
+    - NerdyUI/Public
+  - NerdyUI/Private (1.2.1)
+  - NerdyUI/Public (1.2.1):
+    - NerdyUI/Private
+  - SDWebImage (5.9.5):
+    - SDWebImage/Core (= 5.9.5)
+  - SDWebImage/Core (5.9.5)
+  - SVProgressHUD (2.2.5)
+  - YYModel (1.0.4)
+
+DEPENDENCIES:
+  - AFNetworking (~> 3.2.1)
+  - IQKeyboardManager
+  - JXCategoryView
+  - Masonry (~> 1.1.0)
+  - MBProgressHUD (~> 1.1.0)
+  - MJRefresh
+  - NerdyUI
+  - SDWebImage
+  - SVProgressHUD
+  - YYModel
+
+SPEC REPOS:
+  trunk:
+    - AFNetworking
+    - IQKeyboardManager
+    - JXCategoryView
+    - Masonry
+    - MBProgressHUD
+    - MJRefresh
+    - NerdyUI
+    - SDWebImage
+    - SVProgressHUD
+    - YYModel
+
+SPEC CHECKSUMS:
+  AFNetworking: b6f891fdfaed196b46c7a83cf209e09697b94057
+  IQKeyboardManager: 2a6e97afdafc7becf0cb17a9a8d795e3a980717f
+  JXCategoryView: 778a620f76070d6598fd8d7239991b8da8326170
+  Masonry: 678fab65091a9290e40e2832a55e7ab731aad201
+  MBProgressHUD: e7baa36a220447d8aeb12769bf0585582f3866d9
+  MJRefresh: 6afc955813966afb08305477dd7a0d9ad5e79a16
+  NerdyUI: ae4506046b544a5cdc0873a58c1ece61b29631d0
+  SDWebImage: 0b2ba0d56479bf6a45ecddbfd5558bea93150d25
+  SVProgressHUD: 1428aafac632c1f86f62aa4243ec12008d7a51d6
+  YYModel: 2a7fdd96aaa4b86a824e26d0c517de8928c04b30
+
+PODFILE CHECKSUM: 2503888fef0ccd36027ee10b37cd2d4a65ff6c36
+
+COCOAPODS: 1.10.0
