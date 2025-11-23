@@ -143,28 +143,27 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 - (void)drawRect:(CGRect)rect {
     if (!self.visibleKLineData || self.visibleKLineData.count == 0) return;
 
-    //数组中开始的index
+    // 创建绘图上下文（画布对象）“画布 + 画笔 + 样式设置”
     CGContextRef ctx = UIGraphicsGetCurrentContext();
-    // 可视view显示的个数
+    // 可视view  显示的个数
     NSInteger countInView = ceil(SCREEN_WIDTH / (self.candleWidth + space)) + 1;
+    // 可视view  开始的index
     NSInteger startIndex = MAX(0, self.contentOffsetX / (self.candleWidth + space));
-    //可视数组中结束的index
+    // 可视view  结束的index
     NSInteger endIndex = MIN(startIndex + countInView, self.visibleKLineData.count);
 
     // 局部最大最小价
     CGFloat maxPrice  = -MAXFLOAT;
     CGFloat minPrice  = MAXFLOAT;
     CGFloat maxVolume = -MAXFLOAT;
-    CGFloat maxRSI = -MAXFLOAT;
-    CGFloat minRSI = MAXFLOAT;
+    CGFloat maxRSI    = -MAXFLOAT;
+    CGFloat minRSI    = MAXFLOAT;
 
     for (NSInteger i = startIndex; i < endIndex; i++) {
         KLineModel *model = self.visibleKLineData[i];
         maxPrice = MAX(maxPrice, model.high);
         minPrice = MIN(minPrice, model.low);
         maxVolume = MAX(maxVolume, model.volume);
-//        maxRSI = MAX(maxRSI, model.rsi);
-//        minRSI = MIN(minRSI, model.rsi);
     }
 
     CGFloat marginRatio = 0.1;
@@ -216,10 +215,54 @@ typedef void(^KLineScaleAction)(BOOL clickState);
             CGContextFillRect(ctx, CGRectMake(x, openY, self.candleWidth, closeY - openY));
         }
         
+        // 绘制每条k线涨跌幅 显示在蜡烛图的底部的数值
+        if (model.open > 0) {
+            CGFloat changePercent = ((model.close - model.open) / model.open) * 100;
+            NSString *percentText = [NSString stringWithFormat:@"%.1f", changePercent];
+            NSDictionary *percentAttr = @{
+                NSFontAttributeName: [UIFont systemFontOfSize:8],
+                NSForegroundColorAttributeName: color
+            };
+            CGSize size = [percentText sizeWithAttributes:percentAttr];
+            
+            // 正确：基于最低价位置绘制文字
+            CGFloat textX = x + (self.candleWidth - size.width) / 2;
+            CGFloat textY = lowY + 2; // lowY 是最低价对应的 Y 坐标
+
+            [percentText drawAtPoint:CGPointMake(textX, textY) withAttributes:percentAttr];
+        }
+        
         // 绘制 成交量柱子
         CGFloat volHeight = model.volume * volumeScale;
         CGFloat volY = volumeTop + volumeHeight - volHeight;
         CGContextFillRect(ctx, CGRectMake(x, volY, self.candleWidth, volHeight));
+        
+        // 绘制 成交量柱上方绘制成交量数值
+        if (model.volume > 0) {
+
+            // 两种交替颜色（你可自由调整）
+            UIColor *color1 = [UIColor colorWithWhite:0.2 alpha:1];          // 深灰
+            UIColor *color2 = [UIColor colorWithRed:0 green:0.45 blue:1 alpha:1]; // 蓝色
+
+            // 根据 index 决定颜色（相邻不同色）
+            UIColor *textColor = (i % 2 == 0) ? color1 : color2;
+
+            NSString *volText = [NSString stringWithFormat:@"%.0f", model.volume];
+            NSDictionary *volAttr = @{
+                NSFontAttributeName: [UIFont systemFontOfSize:7],
+                NSForegroundColorAttributeName: textColor
+            };
+
+            CGSize volSize = [volText sizeWithAttributes:volAttr];
+
+            CGFloat volTextX = x + (self.candleWidth - volSize.width) / 2;
+            CGFloat volTextY = volY - volSize.height - 2;
+
+            // 防止文字被蜡烛图盖住
+            if (volTextY > viewHeight + 5) {
+                [volText drawAtPoint:CGPointMake(volTextX, volTextY) withAttributes:volAttr];
+            }
+        }
         
         // ======== 固定 RSI 显示区间 0~100 ========
         CGFloat fixedRSIMax = 100;
@@ -261,58 +304,13 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 
         CGContextSetLineDash(ctx, 0, NULL, 0); //关闭虚线
 
-
-        
-        // 绘制 成交量柱上方绘制成交量数值
-        if (model.volume > 0) {
-
-            // 两种交替颜色（你可自由调整）
-            UIColor *color1 = [UIColor colorWithWhite:0.2 alpha:1];          // 深灰
-            UIColor *color2 = [UIColor colorWithRed:0 green:0.45 blue:1 alpha:1]; // 蓝色
-
-            // 根据 index 决定颜色（相邻不同色）
-            UIColor *textColor = (i % 2 == 0) ? color1 : color2;
-
-            NSString *volText = [NSString stringWithFormat:@"%.0f", model.volume];
-            NSDictionary *volAttr = @{
-                NSFontAttributeName: [UIFont systemFontOfSize:7],
-                NSForegroundColorAttributeName: textColor
-            };
-
-            CGSize volSize = [volText sizeWithAttributes:volAttr];
-
-            CGFloat volTextX = x + (self.candleWidth - volSize.width) / 2;
-            CGFloat volTextY = volY - volSize.height - 2;
-
-            // 防止文字被蜡烛图盖住
-            if (volTextY > viewHeight + 5) {
-                [volText drawAtPoint:CGPointMake(volTextX, volTextY) withAttributes:volAttr];
-            }
-        }
-
-        // 绘制每条k线涨跌幅 显示在蜡烛图的底部的数值
-        if (model.open > 0) {
-            CGFloat changePercent = ((model.close - model.open) / model.open) * 100;
-            NSString *percentText = [NSString stringWithFormat:@"%.1f", changePercent];
-            NSDictionary *percentAttr = @{
-                NSFontAttributeName: [UIFont systemFontOfSize:8],
-                NSForegroundColorAttributeName: color
-            };
-            CGSize size = [percentText sizeWithAttributes:percentAttr];
-            
-            // 正确：基于最低价位置绘制文字
-            CGFloat textX = x + (self.candleWidth - size.width) / 2;
-            CGFloat textY = lowY + 2; // lowY 是最低价对应的 Y 坐标
-
-            [percentText drawAtPoint:CGPointMake(textX, textY) withAttributes:percentAttr];
-        }
     }
     
     // ========= 画布林线 =========
     CGContextSetLineWidth(ctx, 1.0);
 
     // 中轨线 (黄色)
-    CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithRed:1 green:0.85 blue:0 alpha:1].CGColor);
+    CGContextSetStrokeColorWithColor(ctx, [UIColor yellowColor].CGColor);
     for (NSInteger i = startIndex; i < endIndex - 1; i++) {
         KLineModel *m1 = self.visibleKLineData[i];
         KLineModel *m2 = self.visibleKLineData[i+1];
@@ -349,8 +347,8 @@ typedef void(^KLineScaleAction)(BOOL clickState);
         CGContextStrokePath(ctx);
     }
 
-    // 下轨线 (紫色)
-    CGContextSetStrokeColorWithColor(ctx, [UIColor purpleColor].CGColor);
+    // 下轨线 (黑色)
+    CGContextSetStrokeColorWithColor(ctx, [UIColor blackColor].CGColor);
     for (NSInteger i = startIndex; i < endIndex - 1; i++) {
         KLineModel *m1 = self.visibleKLineData[i];
         KLineModel *m2 = self.visibleKLineData[i+1];
@@ -444,18 +442,18 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     CGFloat chartHeight = viewHeight + 10 + volumeHeight + 10 + rsiHeight;
 
     self.allKLineData = [self loadAllData];
-    [self calculateRSIWithPeriod:6];
-    [self calculateBOLLWithPeriod:20];
     self.currentStartIndex = 0;
     self.loadedKLineData = [[self loadDataFromIndex:self.currentStartIndex count:MaxVisibleKLineCount] mutableCopy];
     self.scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
     self.scrollView.delegate = self;
     [self.view addSubview:self.scrollView];
 
+    //计算 股票图的contentSize.width(可滑动的宽度)
     [self setupChartView:chartHeight];
-    
-    
-
+    //计算RSI的模型数据
+    [self calculateRSIWithPeriod:6];
+    //计算BOLL的模型数据
+    [self calculateBOLLWithPeriod:20];
     
 }
 
@@ -511,9 +509,8 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     }
 }
 
-
+//计算 股票图的contentSize.width(可滑动的宽度)
 - (void)setupChartView:(CGFloat)chartHeight {
-    //计算临时显示view的总长度
     CGFloat width = self.loadedKLineData.count * (8 + space);
     KLineChartView *chartView = [[KLineChartView alloc] initWithFrame:CGRectMake(0, self.view.bounds.size.height - chartHeight - SAFE_AREA_BOTTOM, width, chartHeight)];
     chartView.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.2];
@@ -525,6 +522,7 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     self.chartView = chartView;
 }
 
+//读取 全部的本地文件
 - (NSArray<KLineModel *> *)loadAllData {
     NSMutableArray *result = [NSMutableArray array];
     NSArray *paths = [[NSBundle mainBundle] pathsForResourcesOfType:@"json" inDirectory:nil];
@@ -553,12 +551,14 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     return result;
 }
 
+// 根据index 读取后面的300个模型数据
 - (NSArray<KLineModel *> *)loadDataFromIndex:(NSInteger)start count:(NSInteger)count {
     if (start < 0) start = 0;
     NSInteger end = MIN(start + count, self.allKLineData.count);
     return [self.allKLineData subarrayWithRange:NSMakeRange(start, end - start)];
 }
 
+// 左右滑动执行
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
     self.chartView.contentOffsetX = scrollView.contentOffset.x;
     
