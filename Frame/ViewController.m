@@ -20,6 +20,7 @@
 @property (nonatomic, assign) CGFloat bollUpper;
 @property (nonatomic, assign) CGFloat bollMiddle;
 @property (nonatomic, assign) CGFloat bollLower;
+@property (nonatomic,   copy) NSString *signalTag;   // 标记“买入”
 
 @end
 
@@ -156,8 +157,6 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     CGFloat maxPrice  = -MAXFLOAT;
     CGFloat minPrice  = MAXFLOAT;
     CGFloat maxVolume = -MAXFLOAT;
-    CGFloat maxRSI    = -MAXFLOAT;
-    CGFloat minRSI    = MAXFLOAT;
 
     for (NSInteger i = startIndex; i < endIndex; i++) {
         KLineModel *model = self.visibleKLineData[i];
@@ -187,7 +186,6 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     CGFloat volumeScale = (maxVolume > 0) ? (volumeDrawHeight / maxVolume) : 0;
     
     CGFloat rsiTop = volumeTop + volumeHeight + 10;
-    CGFloat rsiScale = (maxRSI - minRSI) != 0 ? (rsiHeight / (maxRSI - minRSI)) : 1;
 
     
     // for循环遍历可视化的绘制数据
@@ -213,6 +211,24 @@ typedef void(^KLineScaleAction)(BOOL clickState);
             CGContextFillRect(ctx, CGRectMake(x, closeY, self.candleWidth, openY - closeY));
         } else {
             CGContextFillRect(ctx, CGRectMake(x, openY, self.candleWidth, closeY - openY));
+        }
+        
+        // ====== 绘制 RSI-BOLL 买入标记 ======
+        if (model.signalTag) {
+
+            NSString *txt = model.signalTag;
+
+            NSDictionary *attr = @{
+                NSFontAttributeName: [UIFont boldSystemFontOfSize:10],
+                NSForegroundColorAttributeName: [UIColor orangeColor]
+            };
+
+            CGSize tsize = [txt sizeWithAttributes:attr];
+
+            CGFloat textX = x + (self.candleWidth - tsize.width) / 2;
+            CGFloat textY = highY - tsize.height - 2; // 放在高点上方
+
+            [txt drawAtPoint:CGPointMake(textX, textY) withAttributes:attr];
         }
         
         // 绘制每条k线涨跌幅 显示在蜡烛图的底部的数值
@@ -431,6 +447,9 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 @property (nonatomic, strong) NSArray<KLineModel *> *allKLineData;
 @property (nonatomic, strong) NSMutableArray<KLineModel *> *loadedKLineData;
 @property (nonatomic, assign) NSInteger currentStartIndex;
+
+@property (nonatomic, assign) NSInteger winCount;
+@property (nonatomic, assign) NSInteger lowerCount;
 @end
 
 @implementation ViewController
@@ -454,7 +473,15 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     [self calculateRSIWithPeriod:6];
     //计算BOLL的模型数据
     [self calculateBOLLWithPeriod:20];
+    /*
+     1.当RSI>80 且 k线的实体上穿布林线的蓝色线(bollUpper)时,等到出现k线下跌的第一根(开盘价大于收盘价),在K线的顶部标记橙色买入的字样
+     2.当RSI<20 且 k线的实体下穿最底部布林线黑色(bollLower)时,等到出现k线上升的第一根(开盘价小于收盘价),在K线的顶部标记橙色买入的字样
+     */
+    [self detectRSI_BOLL_Signals];
     
+    NSLog(@"winCount: %ld",(long)self.winCount);//297
+    NSLog(@"lowerCount: %ld",(long)self.lowerCount);//174
+    NSLog(@"");//胜率 58%
 }
 
 // 计算 RSI
@@ -508,6 +535,137 @@ typedef void(^KLineScaleAction)(BOOL clickState);
         self.allKLineData[i].bollLower = ma - 2 * md;
     }
 }
+
+/*
+ 1.当RSI>80 且 k线的实体上穿布林线的蓝色线(bollUpper)时,等到出现k线下跌的第一根(开盘价大于收盘价),在K线的顶部标记橙色买入的字样
+ 2.当RSI<20 且 k线的实体下穿最底部布林线黑色(bollLower)时,等到出现k线上升的第一根(开盘价小于收盘价),在K线的顶部标记橙色买入的字样
+ 
+ 3.在第一点的基础上已经买跌(标记“买跌”字样的k线收盘价作为买点),如果先跌到1000美元,在该k线写上“赚”的字样,如果先升到1000美元,在该k线写“亏”的字样,
+ 4.在第二点的基础上已经买升(标记“买升”字样的k线收盘价作为买点),如果先升到1000美元,在该k线写上“赚”的字样,如果先跌到1000美元,在该k线写“亏”的字样,
+ */
+- (void)detectRSI_BOLL_Signals {
+
+    BOOL waitForDrop = NO; // RSI>80 上穿上轨后的等待
+    BOOL waitForRise = NO; // RSI<20 下穿下轨后的等待
+
+    for (NSInteger i = 1; i < self.allKLineData.count; i++) {
+
+        KLineModel *m = self.allKLineData[i];
+
+        // ===============================
+        // ① 先处理等待触发的部分
+        // ===============================
+
+        // 等待下跌触发 （来自 RSI>80 且上穿上轨）
+        if (waitForDrop) {
+            if (m.open > m.close) {
+                m.signalTag = @"买跌";
+                waitForDrop = NO;
+                // 开始进行盈利亏损判断
+                [self evaluateProfitFromIndex:i direction:@"down"];
+            }
+        }
+
+        // 等待上涨触发 （来自 RSI<20 且下穿下轨）
+        if (waitForRise) {
+            if (m.open < m.close) {
+                m.signalTag = @"买升";
+                waitForRise = NO;
+                // 开始进行盈利亏损判断
+                [self evaluateProfitFromIndex:i direction:@"up"];
+            }
+        }
+
+        // ===============================
+        // ② 检查触发条件
+        // ===============================
+
+        // ----------- RSI > 80 && 收盘价上穿布林上轨（蓝线）&& k线上升 -----------
+        if (m.rsi > 80 &&
+            m.close > m.open &&
+            m.close > m.bollUpper) {
+
+            waitForDrop = YES;
+            waitForRise = NO;
+        }
+
+        // ----------- RSI < 20 收盘价下穿布林下轨（黑线）&& k线下跌-----------
+        if (m.rsi < 20 &&
+            m.close > m.open &&
+            m.close < m.bollLower) {
+
+            waitForRise = YES;
+            waitForDrop = NO;
+        }
+    }
+}
+
+
+// ============================================================
+// 根据买点向后判断是否 赚 / 亏
+// direction = @"down" 表示买跌
+// direction = @"up"   表示买升
+// ============================================================
+- (void)evaluateProfitFromIndex:(NSInteger)buyIndex direction:(NSString *)direction {
+
+    if (buyIndex < 0 || buyIndex >= self.allKLineData.count) return;
+
+    KLineModel *buyModel = self.allKLineData[buyIndex];
+    CGFloat buyPrice = buyModel.open;
+
+    CGFloat tp = buyPrice * 1.01;   // 涨 1%
+    CGFloat sl = buyPrice * 0.99; // 跌 1%
+
+    // 买跌：希望价格下跌，跌1000 = 赚，涨1000 = 亏
+    BOOL isBuyDown = [direction isEqualToString:@"down"];
+
+    for (NSInteger i = buyIndex + 1; i < self.allKLineData.count; i++) {
+
+        KLineModel *m = self.allKLineData[i];
+
+        if (isBuyDown) {
+
+            // =====================
+            // 买跌逻辑（希望下跌）
+            // =====================
+            
+            // 跌到 -1%（赚）
+            if (m.low <= sl) {
+                m.signalTag = @"赚";
+                self.winCount += 1;
+                return;
+            }
+            
+            // 涨到 +1%（亏）
+            if (m.high >= tp) {
+                m.signalTag = @"亏";
+                self.lowerCount += 1;
+                return;
+            }
+
+        } else {
+
+            // =====================
+            // 买升逻辑
+            // =====================
+            
+            // 涨到 +1%（赚）
+            if (m.high >= tp) {
+                m.signalTag = @"赚";
+                self.winCount += 1;
+                return;
+            }
+            
+            // 跌到 -1%（亏）
+            if (m.low <= sl) {
+                m.signalTag = @"亏";
+                self.lowerCount += 1;
+                return;
+            }
+        }
+    }
+}
+
 
 //计算 股票图的contentSize.width(可滑动的宽度)
 - (void)setupChartView:(CGFloat)chartHeight {
@@ -625,6 +783,7 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 }
 
 @end
+
 
 
 
