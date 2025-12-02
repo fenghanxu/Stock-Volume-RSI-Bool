@@ -8,6 +8,9 @@
 #define volumeHeight 80  // 成交量图形高度
 #define rsiHeight 60 // RSI 指标高度
 
+#define TP_Parameter 0.059
+#define SL_Parameter 0.017
+
 //k线模型
 @interface KLineModel : NSObject
 @property (nonatomic, assign) CGFloat open;
@@ -448,15 +451,46 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 @property (nonatomic, strong) NSMutableArray<KLineModel *> *loadedKLineData;
 @property (nonatomic, assign) NSInteger currentStartIndex;
 
-@property (nonatomic, assign) NSInteger winCount;
-@property (nonatomic, assign) NSInteger lowerCount;
+@property (nonatomic, assign) NSInteger winCount;//赢的次数
+@property (nonatomic, assign) NSInteger lowerCount;//输的次数
+@property (nonatomic, assign) double finalBalance;   // 最终资金
+@property (nonatomic, assign) NSInteger tradeCount;  // 总交易数
+@property (nonatomic, assign) NSInteger winTrades;   // 获利交易数
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *lossStreaks; // 连败统计数组 1~12
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *returnsArray;// 累计每一盘的盈亏
+@property (nonatomic, assign) NSInteger currentLossStreak; // 当前连败数
+
 @end
 
 @implementation ViewController
 
+- (NSMutableArray<NSNumber *> *)returnsArray {
+    if (_returnsArray == nil) {
+        _returnsArray = [NSMutableArray<NSNumber *> new];
+    }
+    return _returnsArray;
+}
+
+- (NSMutableArray<NSNumber *> *)lossStreaks {
+    if (_lossStreaks == nil) {
+        _lossStreaks = [NSMutableArray<NSNumber *> new];
+    }
+    return _lossStreaks;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.whiteColor;
+    
+    self.finalBalance = 1.0;
+    self.tradeCount = 0;
+    self.winTrades = 0;
+    self.currentLossStreak = 0;
+    self.lossStreaks = [NSMutableArray array];
+    for (int i = 0; i < 12; i++) {
+        [self.lossStreaks addObject:@0];
+    }
+
     
     CGFloat chartHeight = viewHeight + 10 + volumeHeight + 10 + rsiHeight;
 
@@ -478,11 +512,42 @@ typedef void(^KLineScaleAction)(BOOL clickState);
      2.当RSI<20 且 k线的实体下穿最底部布林线黑色(bollLower)时,等到出现k线上升的第一根(开盘价小于收盘价),在K线的顶部标记橙色买入的字样
      */
     [self detectRSI_BOLL_Signals];
-    
-    NSLog(@"winCount: %ld",(long)self.winCount);//297
-    NSLog(@"lowerCount: %ld",(long)self.lowerCount);//174
-    NSLog(@"");//胜率 58%
+    //打印结果
+    [self printBacktestSummary];
 }
+
+- (void)printBacktestSummary {
+
+    printf("============================\n");
+    printf("===== 固定参数回测结果 =====\n");
+    printf("============================\n");
+
+    printf("TP = %.3f%%\n", TP_Parameter * 100);
+    printf("SL = %.3f%%\n", SL_Parameter * 100);
+    printf("最终资金乘数 = %.6f\n", self.finalBalance);
+    printf("交易笔数 = %ld\n", (long)self.tradeCount);
+    printf("获利笔数 = %ld\n", (long)self.winTrades);
+    double winRate = 0.0;
+    if (self.tradeCount > 0) {
+        winRate = (double)self.winTrades / self.tradeCount * 100.0;
+    }
+    printf("胜率 = %.2f%%\n", winRate);
+    double avgReturn = 0;
+    if (self.returnsArray.count > 0) {
+        double sum = 0;
+        for (NSNumber *n in self.returnsArray) sum += n.doubleValue;
+        avgReturn = sum / self.returnsArray.count;
+    }
+    printf("赢的次数 = %ld\n", (long)self.winCount);
+    printf("输的次数 = %ld\n", (long)self.lowerCount);
+    printf("平均每笔回报（%%） = %.4f%%\n", avgReturn);
+
+    printf("========== 连败统计（1..12） ==========\n");
+    for (int i = 0; i < 12; i++) {
+        printf("连输%d: %d\n", i+1, self.lossStreaks[i].intValue);
+    }
+}
+
 
 // 计算 RSI
 - (void)calculateRSIWithPeriod:(NSInteger)n {
@@ -537,68 +602,139 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 }
 
 /*
- 1.当RSI>80 且 k线的实体上穿布林线的蓝色线(bollUpper)时,等到出现k线下跌的第一根(开盘价大于收盘价),在K线的顶部标记橙色买入的字样
- 2.当RSI<20 且 k线的实体下穿最底部布林线黑色(bollLower)时,等到出现k线上升的第一根(开盘价小于收盘价),在K线的顶部标记橙色买入的字样
+ 做空（short）触发条件
+ 必须同时满足：
+ 1. RSI > 80
+ 2. 收盘价 > 开盘价（阳线，上涨 K 线）
+ 3. 收盘价 > 顶部布林线（向上站在布林线上方）
+ 📌 触发后不是立刻做空，而是等待 ➡ 等待出现第一根下跌 K 线（open > close）的下一根k线开盘价做空
+
+ 做空止盈止损
+ 止盈固定：-0.7%    即: 0.993(跌0.007)
+ 止损固定：+1%        即:1.01(升0.1)
+
+
+
+
+ 做多（long）触发条件
+ 必须同时满足：
+ 1. RSI < 20
+ 2. 收盘价 < 开盘价（阴线，下跌 K 线）
+ 3. 收盘价 < 底部布林线（向下站在布林线外）
+ 📌 触发后不是立刻做多，而是等待 ➡ 等待出现第一根上涨 K 线（open < close）的下一根k线开盘价做多
+
+ 做多止盈止损
+ 止盈固定：+0.7%    即:1.007(升0.07)
+ 止损固定：−1%       即:0.99(跌0.01)
  
- 3.在第一点的基础上已经买跌(标记“买跌”字样的k线收盘价作为买点),如果先跌到1000美元,在该k线写上“赚”的字样,如果先升到1000美元,在该k线写“亏”的字样,
- 4.在第二点的基础上已经买升(标记“买升”字样的k线收盘价作为买点),如果先升到1000美元,在该k线写上“赚”的字样,如果先跌到1000美元,在该k线写“亏”的字样,
  */
 - (void)detectRSI_BOLL_Signals {
 
-    BOOL waitForDrop = NO; // RSI>80 上穿上轨后的等待
-    BOOL waitForRise = NO; // RSI<20 下穿下轨后的等待
+    BOOL inPosition = NO;
+    NSInteger buyIndex = -1;
+    CGFloat buyPrice = 0;
+    NSString *direction = @"";
+    
+    BOOL waitForRise = NO;    // 等上涨确认 → 买升
+    BOOL waitForDrop = NO;    // 等下跌确认 → 买跌
+
+    self.winCount = 0;
+    self.lowerCount = 0;
 
     for (NSInteger i = 1; i < self.allKLineData.count; i++) {
 
         KLineModel *m = self.allKLineData[i];
 
-        // ===============================
-        // ① 先处理等待触发的部分
-        // ===============================
+        // ==============================================================
+        // ① 已持仓 → 检查卖出是否满足 TP / SL
+        // ==============================================================
+        if (inPosition) {
 
-        // 等待下跌触发 （来自 RSI>80 且上穿上轨）
-        if (waitForDrop) {
-            if (m.open > m.close) {
-                m.signalTag = @"买跌";
-                waitForDrop = NO;
-                // 开始进行盈利亏损判断
-                [self evaluateProfitFromIndex:i direction:@"down"];
+            BOOL closed = [self evaluateProfitFromIndex:i
+                                               buyIndex:buyIndex
+                                              buyPrice:buyPrice
+                                              direction:direction];
+
+            if (closed) {
+                inPosition = NO;
+                buyIndex = -1;
+                buyPrice = 0;
             }
+
+            continue;
         }
 
-        // 等待上涨触发 （来自 RSI<20 且下穿下轨）
+        // ==============================================================
+        // ② 当前没有持仓 → 等待确认 K 线开仓
+        // ==============================================================
+
+        // ---- 等涨确认 → 买升（多单）----
         if (waitForRise) {
-            if (m.open < m.close) {
+
+            if (m.close > m.open) {   // 必须是涨 K 才开仓（与 Python 一致）
+
+                direction = @"long";
+                buyIndex = i;
+                buyPrice = m.close;    // 符合条件收盘价开仓
+
                 m.signalTag = @"买升";
+                inPosition = YES;
+
                 waitForRise = NO;
-                // 开始进行盈利亏损判断
-                [self evaluateProfitFromIndex:i direction:@"up"];
+                waitForDrop = NO;
+
+                continue;
             }
         }
 
-        // ===============================
-        // ② 检查触发条件
-        // ===============================
+        // ---- 等跌确认 → 买跌（空单）----
+        if (waitForDrop) {
 
-        // ----------- RSI > 80 && 收盘价上穿布林上轨（蓝线）&& k线上升 -----------
-        if (m.rsi > 80 &&
-            m.close > m.open &&
-            m.close > m.bollUpper) {
+            if (m.open > m.close) {   // 必须是跌 K 才开仓（与 Python 一致）
 
-            waitForDrop = YES;
-            waitForRise = NO;
+                direction = @"short";
+                buyIndex = i;
+                buyPrice = m.close; // 符合条件收盘价开仓
+
+                m.signalTag = @"买跌";
+                inPosition = YES;
+
+                waitForDrop = NO;
+                waitForRise = NO;
+
+                continue;
+            }
         }
 
-        // ----------- RSI < 20 收盘价下穿布林下轨（黑线）&& k线下跌-----------
+        // ==============================================================
+        // ③ 无仓位，也没有等待确认 → 检测信号本体
+        // ==============================================================
+
+        // ----------- RSI < 20 下穿下轨 → 下一根涨 K 才买升 -----------
         if (m.rsi < 20 &&
-            m.close > m.open &&
-            m.close < m.bollLower) {
+            m.close < m.open &&
+            m.close < m.bollLower &&
+            m.bollLower > 0.0) {
 
             waitForRise = YES;
             waitForDrop = NO;
+            continue;
+        }
+
+        // ----------- RSI > 80 上穿上轨 → 下一根跌 K 才买跌 -----------
+        if (m.rsi > 80 &&
+            m.close > m.open &&
+            m.close > m.bollUpper &&
+            m.bollUpper > 0.0) {
+
+            waitForDrop = YES;
+            waitForRise = NO;
+            continue;
         }
     }
+
 }
+
 
 
 // ============================================================
@@ -606,65 +742,211 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 // direction = @"down" 表示买跌
 // direction = @"up"   表示买升
 // ============================================================
-- (void)evaluateProfitFromIndex:(NSInteger)buyIndex direction:(NSString *)direction {
+- (BOOL)evaluateProfitFromIndex:(NSInteger)i
+                       buyIndex:(NSInteger)buyIndex
+                       buyPrice:(CGFloat)buyPrice
+                      direction:(NSString *)direction {
 
-    if (buyIndex < 0 || buyIndex >= self.allKLineData.count) return;
+    if (buyIndex < 0) return NO;
 
-    KLineModel *buyModel = self.allKLineData[buyIndex];
-    CGFloat buyPrice = buyModel.open;
+    // ===== 止盈止损百分比 =====
+    CGFloat tpPct = TP_Parameter;    // 止盈
+    CGFloat slPct = SL_Parameter;    // 止损
 
-    CGFloat tp = buyPrice * 1.01;   // 涨 1%
-    CGFloat sl = buyPrice * 0.99; // 跌 1%
+    CGFloat TP, SL;
 
-    // 买跌：希望价格下跌，跌1000 = 赚，涨1000 = 亏
-    BOOL isBuyDown = [direction isEqualToString:@"down"];
+    // ============================
+    //   按多空方向计算目标价格
+    // ============================
+    if ([direction isEqualToString:@"long"]) {
 
-    for (NSInteger i = buyIndex + 1; i < self.allKLineData.count; i++) {
+        // 做多
+        TP = buyPrice * (1 + tpPct);   // 上涨止盈
+        SL = buyPrice * (1 - slPct);   // 下跌止损
 
-        KLineModel *m = self.allKLineData[i];
+    } else {
 
-        if (isBuyDown) {
+        // 做空
+        TP = buyPrice * (1 - tpPct);   // 下跌止盈
+        SL = buyPrice * (1 + slPct);   // 上涨止损
+    }
 
-            // =====================
-            // 买跌逻辑（希望下跌）
-            // =====================
+    KLineModel *cur = self.allKLineData[i];
+
+    // =====================
+    //       做多逻辑
+    // =====================
+    if ([direction isEqualToString:@"long"]) {
+
+        // --- 止盈（价格 >= TP）---
+        if (cur.high >= TP) {
+            self.winCount++;
+            self.allKLineData[i].signalTag = @"赚";
             
-            // 跌到 -1%（赚）
-            if (m.low <= sl) {
-                m.signalTag = @"赚";
-                self.winCount += 1;
-                return;
+            NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+            NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+            buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+            
+            NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+            NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+            sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+                        
+            NSLog(@"WIN 多单 | 买入时间: %@ | 卖出时间: %@ | 买: %.2f | 卖: %.2f | 盈利 %.2f%%",
+                  buy_dateStr, sall_dateStr, buyPrice, TP, (TP-buyPrice)/buyPrice*100);
+            
+            // ======== 统计部分开始 ========
+            // 总交易笔数
+            self.tradeCount += 1;
+            // 盈利笔数
+            self.winTrades += 1;
+
+            // 清零当前连败并记录到 streak 数组
+            if (self.currentLossStreak > 0) {
+                NSInteger idx = MIN(self.currentLossStreak - 1, 11);
+                NSInteger old = self.lossStreaks[idx].integerValue;
+                self.lossStreaks[idx] = @(old + 1);
+                self.currentLossStreak = 0;
             }
             
-            // 涨到 +1%（亏）
-            if (m.high >= tp) {
-                m.signalTag = @"亏";
-                self.lowerCount += 1;
-                return;
-            }
-
-        } else {
-
-            // =====================
-            // 买升逻辑
-            // =====================
+            double pct = (TP - buyPrice) / buyPrice * 100.0;//单笔收益率(%) 赢一次固定 8%
+            // === 复利计算（和 Python 完全一致）===
+            double multiplier = 1.0 + pct / 100.0; //总金额的 1.08
+            self.finalBalance *= multiplier;//总金额 * 1.08
             
-            // 涨到 +1%（赚）
-            if (m.high >= tp) {
-                m.signalTag = @"赚";
-                self.winCount += 1;
-                return;
-            }
+            // 添加到数组（用于计算平均回报）
+            [self.returnsArray addObject:@(pct)];
+            // ======== 统计部分结束 ========
+
+
+            return YES;
+        }
+
+        // --- 止损（价格 <= SL）---
+        if (cur.low <= SL) {
+            self.lowerCount++;
+            self.allKLineData[i].signalTag = @"亏";
             
-            // 跌到 -1%（亏）
-            if (m.low <= sl) {
-                m.signalTag = @"亏";
-                self.lowerCount += 1;
-                return;
-            }
+            NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+            NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+            buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+            
+            NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+            NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+            sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+            
+            NSLog(@"LOSE 多单 | 买入时间: %@ | 卖出时间: %@ | 买: %.2f | 卖: %.2f | 盈利 %.2f%%",
+                  buy_dateStr, sall_dateStr, buyPrice, SL, (SL-buyPrice)/buyPrice*100);
+            
+            // ======== 统计部分开始 ========
+            // 总交易笔数
+            self.tradeCount += 1;
+            // 总交易笔数
+            self.currentLossStreak += 1;
+            
+            double pct = (SL -buyPrice) / buyPrice * 100.0;//单笔收益率(%)
+            // === 复利计算（和 Python 完全一致）===
+            double multiplier = 1.0 + pct / 100.0;
+            self.finalBalance *= multiplier;
+            // 添加到数组（用于计算平均回报）
+            [self.returnsArray addObject:@(pct)];
+            // ======== 统计部分结束 ========
+
+            return YES;
         }
     }
+
+    // =====================
+    //       做空逻辑
+    // =====================
+    else {
+
+        // --- 止盈（价格 <= TP）---
+        if (cur.low <= TP) {
+            self.winCount++;
+            self.allKLineData[i].signalTag = @"赚";
+            
+            NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+            NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+            buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+            
+            NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+            NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+            sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+            
+            NSLog(@"WIN 空单 | 买入时间: %@ | 卖出时间: %@ | 卖空: %.2f | 平仓: %.2f | 盈利 %.2f%%",
+                  buy_dateStr, sall_dateStr, buyPrice, TP, (buyPrice-TP)/buyPrice*100);
+            
+            // ======== 统计部分开始 ========
+            // 总交易笔数
+            self.tradeCount += 1;
+            // 盈利笔数
+            self.winTrades += 1;
+
+            // 清零当前连败并记录到 streak 数组
+            if (self.currentLossStreak > 0) {
+                NSInteger idx = MIN(self.currentLossStreak - 1, 11);
+                NSInteger old = self.lossStreaks[idx].integerValue;
+                self.lossStreaks[idx] = @(old + 1);
+                self.currentLossStreak = 0;
+            }
+            
+            double pct = (buyPrice - TP) / buyPrice * 100.0;//单笔收益率(%)  8%
+            // === 复利计算（和 Python 完全一致）===
+            double multiplier = 1.0 + pct / 100.0;
+            self.finalBalance *= multiplier;
+            // 添加到数组（用于计算平均回报）
+            [self.returnsArray addObject:@(pct)];
+            // ======== 统计部分结束 ========
+
+            return YES;
+        }
+
+        // --- 止损（价格 >= SL）---
+        if (cur.high >= SL) {
+            self.lowerCount++;
+            self.allKLineData[i].signalTag = @"亏";
+            
+            NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+            NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+            buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+            
+            NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+            NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+            sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+            NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+            
+            NSLog(@"LOSE 空单 | 买入时间: %@ | 卖出时间: %@ | 卖空: %.2f | 平仓: %.2f | 盈利 %.2f%%",
+                  buy_dateStr, sall_dateStr, buyPrice, SL, (buyPrice-SL)/buyPrice*100);
+            
+            // ======== 统计部分开始 ========
+            // 总交易笔数
+            self.tradeCount += 1;
+            // 亏损笔数
+            self.currentLossStreak += 1;
+            
+            double pct = (buyPrice - SL) / buyPrice * 100.0;//单笔收益率(%) -12
+            // === 复利计算（和 Python 完全一致）===
+            double multiplier = 1.0 + pct / 100.0;  //剩余总金额的 0.88 88%
+            self.finalBalance *= multiplier;// 总金额 * 88%
+            // 添加到数组（用于计算平均回报）
+            [self.returnsArray addObject:@(pct)];
+            // ======== 统计部分结束 ========
+
+            
+            return YES;
+        }
+    }
+
+    return NO; // 继续持仓
 }
+
 
 
 //计算 股票图的contentSize.width(可滑动的宽度)
@@ -783,9 +1065,5 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 }
 
 @end
-
-
-
-
 
 
