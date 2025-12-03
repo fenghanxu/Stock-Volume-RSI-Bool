@@ -451,6 +451,10 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 @property (nonatomic, strong) NSMutableArray<KLineModel *> *loadedKLineData;//用于显示的300根-600根数据
 @property (nonatomic, assign) NSInteger currentStartIndex;
 
+@property (nonatomic, strong) NSMutableArray *holdPeriodList;//持仓时间数组
+@property (nonatomic, assign) NSInteger maxHoldPeriod; // 记录最长持仓周期
+@property (nonatomic,   copy) NSString *buyTime;//买入时间
+@property (nonatomic,   copy) NSString *sallTime;//卖出时间
 @property (nonatomic, assign) NSInteger winCount;//赢的次数
 @property (nonatomic, assign) NSInteger lowerCount;//输的次数
 @property (nonatomic, assign) double finalBalance;   // 最终资金
@@ -482,6 +486,10 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.whiteColor;
     
+    self.holdPeriodList = [NSMutableArray array];
+    self.maxHoldPeriod = 0;
+    self.buyTime = [NSString new];
+    self.sallTime = [NSString new];
     self.finalBalance = 1.0;
     self.tradeCount = 0;
     self.winTrades = 0;
@@ -522,6 +530,9 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     printf("===== 固定参数回测结果 =====\n");
     printf("============================\n");
 
+    printf("最长持仓周期 = %ld 根K线\n", (long)self.maxHoldPeriod);
+    NSLog(@"买入时间 = %@ \n", self.buyTime);
+    NSLog(@"卖出时间 = %@ \n", self.sallTime);
     printf("TP = %.3f%%\n", TP_Parameter * 100);
     printf("SL = %.3f%%\n", SL_Parameter * 100);
     printf("最终资金乘数 = %.6f\n", self.finalBalance);
@@ -545,6 +556,12 @@ typedef void(^KLineScaleAction)(BOOL clickState);
     printf("========== 连败统计（1..12） ==========\n");
     for (int i = 0; i < 12; i++) {
         printf("连输%d: %d\n", i+1, self.lossStreaks[i].intValue);
+    }
+    
+    printf("========== 持仓时间 ==========\n");
+    for (int i = 0; i < self.holdPeriodList.count; i++) {
+        NSNumber *num = self.holdPeriodList[i];
+        printf("持仓时间%d 小时 \n", num.intValue);
     }
 }
 
@@ -780,6 +797,23 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 
         // --- 止盈（价格 >= TP）---
         if (cur.high >= TP) {
+            NSInteger holdPeriod = i - buyIndex;
+            [self.holdPeriodList addObject:@(holdPeriod)];
+            if (holdPeriod > self.maxHoldPeriod) {
+                self.maxHoldPeriod = holdPeriod;
+                NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+                NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+                buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+                self.buyTime = buy_dateStr;
+                NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+                NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+                sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+                self.sallTime = sall_dateStr;
+            }
+            
+            
             self.winCount++;
             self.allKLineData[i].signalTag = @"赚";
             
@@ -825,6 +859,23 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 
         // --- 止损（价格 <= SL）---
         if (cur.low <= SL) {
+            NSInteger holdPeriod = i - buyIndex;
+            [self.holdPeriodList addObject:@(holdPeriod)];
+            if (holdPeriod > self.maxHoldPeriod) {
+                self.maxHoldPeriod = holdPeriod;
+                NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+                NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+                buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+                self.buyTime = buy_dateStr;
+                NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+                NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+                sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+                self.sallTime = sall_dateStr;
+            }
+            
+            
             self.lowerCount++;
             self.allKLineData[i].signalTag = @"亏";
             
@@ -866,6 +917,23 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 
         // --- 止盈（价格 <= TP）---
         if (cur.low <= TP) {
+            NSInteger holdPeriod = i - buyIndex;
+            [self.holdPeriodList addObject:@(holdPeriod)];
+            if (holdPeriod > self.maxHoldPeriod) {
+                self.maxHoldPeriod = holdPeriod;
+                NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+                NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+                buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+                self.buyTime = buy_dateStr;
+                NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+                NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+                sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+                self.sallTime = sall_dateStr;
+            }
+            
+            
             self.winCount++;
             self.allKLineData[i].signalTag = @"赚";
             
@@ -909,6 +977,23 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 
         // --- 止损（价格 >= SL）---
         if (cur.high >= SL) {
+            NSInteger holdPeriod = i - buyIndex;
+            [self.holdPeriodList addObject:@(holdPeriod)];
+            if (holdPeriod > self.maxHoldPeriod) {
+                self.maxHoldPeriod = holdPeriod;
+                NSDate *buy_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[buyIndex].timestamp];
+                NSDateFormatter *buy_formatter = [[NSDateFormatter alloc] init];
+                buy_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *buy_dateStr = [buy_formatter stringFromDate:buy_date];
+                self.buyTime = buy_dateStr;
+                NSDate *sall_date = [NSDate dateWithTimeIntervalSince1970:self.allKLineData[i].timestamp];
+                NSDateFormatter *sall_formatter = [[NSDateFormatter alloc] init];
+                sall_formatter.dateFormat = @"yyyy-MM-dd HH";
+                NSString *sall_dateStr = [sall_formatter stringFromDate:sall_date];
+                self.sallTime = sall_dateStr;
+            }
+            
+            
             self.lowerCount++;
             self.allKLineData[i].signalTag = @"亏";
             
