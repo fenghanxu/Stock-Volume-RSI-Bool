@@ -447,8 +447,8 @@ typedef void(^KLineScaleAction)(BOOL clickState);
 @interface ViewController () <UIScrollViewDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) KLineChartView *chartView;
-@property (nonatomic, strong) NSArray<KLineModel *> *allKLineData;
-@property (nonatomic, strong) NSMutableArray<KLineModel *> *loadedKLineData;
+@property (nonatomic, strong) NSArray<KLineModel *> *allKLineData;//加载的全部json文件数据
+@property (nonatomic, strong) NSMutableArray<KLineModel *> *loadedKLineData;//用于显示的300根-600根数据
 @property (nonatomic, assign) NSInteger currentStartIndex;
 
 @property (nonatomic, assign) NSInteger winCount;//赢的次数
